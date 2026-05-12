@@ -32,3 +32,20 @@ Keep `extract_facts` excluded from the GBrain MCP tool list.
 ## Model Regression
 
 Expected setup: `gpt-5.5`, provider `openai-codex`, base URL `https://chatgpt.com/backend-api/codex`.
+
+If Slack shows `Provider: auto`, `/new` reports a larger non-Codex context window, or `/reload-mcp` says `No MCP servers connected`, inspect `/data/.hermes/config.yaml`. The admin server must preserve the full Hermes config and must not replace it with a minimal `provider: auto` file.
+
+Required config anchors:
+
+```yaml
+model:
+  default: gpt-5.5
+  provider: openai-codex
+  base_url: https://chatgpt.com/backend-api/codex
+
+mcp_servers:
+  gbrain:
+    command: /data/.hermes/bin/gbrain-mcp-server
+```
+
+Restore from the newest timestamped backup when available, then restart the gateway cleanly. The correct Slack state is `gpt-5.5` on `openai-codex` with GBrain MCP connected.

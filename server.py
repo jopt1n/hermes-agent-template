@@ -27,9 +27,11 @@ import os
 import re
 import secrets
 import signal
+import shutil
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -54,6 +56,7 @@ HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
 ENV_FILE = Path(HERMES_HOME) / ".env"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 PAIRING_TTL = 3600
+CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 # Native Hermes dashboard — runs on loopback, fronted by our reverse proxy.
 HERMES_DASHBOARD_HOST = "127.0.0.1"
@@ -80,6 +83,8 @@ else:
 # (key, label, category, is_secret)
 ENV_VARS = [
     ("LLM_MODEL",               "Model",                    "model",     False),
+    ("HERMES_INFERENCE_PROVIDER","Hermes provider",          "model",     False),
+    ("HERMES_CODEX_BASE_URL",    "OpenAI Codex base URL",    "model",     False),
     ("OPENROUTER_API_KEY",       "OpenRouter",               "provider",  True),
     ("DEEPSEEK_API_KEY",         "DeepSeek",                 "provider",  True),
     ("DASHSCOPE_API_KEY",        "DashScope",                "provider",  True),
@@ -156,16 +161,118 @@ def read_env(path: Path) -> dict[str, str]:
     return out
 
 
-def write_config_yaml(data: dict[str, str]) -> None:
-    """Write a minimal config.yaml so hermes picks up the model and provider."""
-    model = data.get("LLM_MODEL", "")
-    config_path = Path(HERMES_HOME) / "config.yaml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(f"""\
-model:
-  default: "{model}"
-  provider: "auto"
+def _yaml_quote(value: str) -> str:
+    return json.dumps(value or "")
 
+
+def _timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _backup_file(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    backup = path.with_name(f"{path.name}.bak.{_timestamp()}")
+    shutil.copy2(path, backup)
+    return backup
+
+
+def _top_level_key(line: str) -> bool:
+    return bool(line and not line[0].isspace() and re.match(r"^[A-Za-z_][A-Za-z0-9_-]*\s*:", line))
+
+
+def _model_block(text: str) -> str:
+    lines = text.splitlines()
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if re.match(r"^model:\s*(?:#.*)?$", line):
+            start = i
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if _top_level_key(lines[i]):
+            end = i
+            break
+    return "\n".join(lines[start:end])
+
+
+def _model_field(text: str, key: str) -> str:
+    block = _model_block(text)
+    if not block:
+        return ""
+    match = re.search(rf"^\s+{re.escape(key)}:\s*(.*?)\s*(?:#.*)?$", block, re.MULTILINE)
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return value
+
+
+def _desired_model_values(data: dict[str, str], existing_text: str = "") -> tuple[str, str, str]:
+    model = (
+        data.get("LLM_MODEL")
+        or os.environ.get("LLM_MODEL", "")
+        or _model_field(existing_text, "default")
+        or "gpt-5.5"
+    )
+    existing_provider = _model_field(existing_text, "provider")
+    provider = (
+        data.get("HERMES_INFERENCE_PROVIDER")
+        or os.environ.get("HERMES_INFERENCE_PROVIDER", "")
+        or ("openai-codex" if existing_provider in ("", "auto", "openai-codex") else existing_provider)
+    )
+    base_url = (
+        data.get("HERMES_CODEX_BASE_URL")
+        or os.environ.get("HERMES_CODEX_BASE_URL", "")
+        or _model_field(existing_text, "base_url")
+        or (CODEX_BASE_URL if provider == "openai-codex" else "")
+    )
+    return model, provider, base_url
+
+
+def _render_model_block(data: dict[str, str], existing_text: str = "") -> str:
+    model, provider, base_url = _desired_model_values(data, existing_text)
+    lines = [
+        "model:",
+        f"  default: {_yaml_quote(model)}",
+        f"  provider: {_yaml_quote(provider)}",
+    ]
+    if base_url:
+        lines.append(f"  base_url: {_yaml_quote(base_url)}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_gbrain_mcp_block() -> str:
+    return """\
+mcp_servers:
+  gbrain:
+    command: /data/.hermes/bin/gbrain-mcp-server
+    args: []
+    enabled: true
+    timeout: 120
+    connect_timeout: 60
+    tools:
+      exclude:
+        - extract_facts
+      resources: false
+      prompts: false
+"""
+
+
+def _render_starter_config(data: dict[str, str], existing_text: str = "") -> str:
+    return f"""\
+{_render_model_block(data, existing_text)}
+providers: {{}}
+fallback_providers: []
+credential_pool_strategies: {{}}
+
+toolsets:
+  - hermes-cli
+
+{_render_gbrain_mcp_block()}
 terminal:
   backend: "local"
   timeout: 60
@@ -174,8 +281,63 @@ terminal:
 agent:
   max_iterations: 50
 
-data_dir: "{HERMES_HOME}"
-""")
+data_dir: {_yaml_quote(HERMES_HOME)}
+"""
+
+
+def _replace_model_block(text: str, model_block: str) -> str:
+    lines = text.splitlines()
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if re.match(r"^model:\s*(?:#.*)?$", line):
+            start = i
+            break
+    if start is None:
+        return model_block.rstrip() + "\n\n" + text.lstrip("\n")
+
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if _top_level_key(lines[i]):
+            end = i
+            break
+
+    new_lines = lines[:start] + model_block.rstrip().splitlines() + [""] + lines[end:]
+    return "\n".join(new_lines).rstrip() + "\n"
+
+
+def _has_rich_config(text: str) -> bool:
+    rich_markers = (
+        "mcp_servers:",
+        "security:",
+        "privacy:",
+        "slack:",
+        "platforms:",
+        "approvals:",
+        "providers:",
+        "toolsets:",
+    )
+    return any(marker in text for marker in rich_markers)
+
+
+def write_config_yaml(data: dict[str, str]) -> None:
+    """Keep Hermes config rich while updating only the model-related settings."""
+    config_path = Path(HERMES_HOME) / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = config_path.read_text() if config_path.exists() else ""
+        if not existing.strip() or not _has_rich_config(existing):
+            next_text = _render_starter_config(data, existing)
+        else:
+            next_text = _replace_model_block(existing, _render_model_block(data, existing))
+            if "mcp_servers:" not in next_text:
+                next_text = next_text.rstrip() + "\n\n" + _render_gbrain_mcp_block()
+        if next_text != existing:
+            _backup_file(config_path)
+            config_path.write_text(next_text)
+    except Exception as e:
+        backup = _backup_file(config_path)
+        backup_msg = f" backup={backup}" if backup else ""
+        print(f"[server] Refusing to rewrite config.yaml after parse/write error: {e!r}.{backup_msg}", flush=True)
 
 
 def write_env(path: Path, data: dict[str, str]) -> None:
@@ -222,7 +384,13 @@ def is_config_complete(data: dict[str, str] | None = None) -> bool:
     if data is None:
         data = read_env(ENV_FILE)
     has_model = bool(data.get("LLM_MODEL"))
-    has_provider = any(data.get(k) for k in PROVIDER_KEYS)
+    config_path = Path(HERMES_HOME) / "config.yaml"
+    config_text = config_path.read_text() if config_path.exists() else ""
+    has_codex_provider = (
+        data.get("HERMES_INFERENCE_PROVIDER") == "openai-codex"
+        or _model_field(config_text, "provider") == "openai-codex"
+    )
+    has_provider = has_codex_provider or any(data.get(k) for k in PROVIDER_KEYS)
     return has_model and has_provider
 
 
@@ -435,7 +603,11 @@ class Gateway:
             env.update(read_env(ENV_FILE))
             model = env.get("LLM_MODEL", "")
             provider_key = next((env.get(k, "") for k in PROVIDER_KEYS if env.get(k)), "")
-            print(f"[gateway] model={model or '⚠ NOT SET'} | provider_key={'set' if provider_key else '⚠ NOT SET'}", flush=True)
+            config_path = Path(HERMES_HOME) / "config.yaml"
+            config_text = config_path.read_text() if config_path.exists() else ""
+            provider = env.get("HERMES_INFERENCE_PROVIDER") or _model_field(config_text, "provider")
+            provider_status = provider or ("api-key" if provider_key else "⚠ NOT SET")
+            print(f"[gateway] model={model or '⚠ NOT SET'} | provider={provider_status}", flush=True)
             # Write config.yaml so hermes picks up the model (env vars alone aren't always enough)
             write_config_yaml(read_env(ENV_FILE))
             self.proc = await asyncio.create_subprocess_exec(

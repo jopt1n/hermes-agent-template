@@ -17,3 +17,5 @@ Golden paths:
 PGLite allows one active GBrain process. Stop the Hermes gateway before CLI GBrain work, confirm `gbrain serve` is gone, run maintenance, then restart the gateway.
 
 Before risky changes, back up Hermes config, SOUL, the brain repo, and the PGLite DB.
+
+The admin server must preserve `/data/.hermes/config.yaml`. If `/new` shows `Provider: auto` or `/reload-mcp` reports no MCP servers, check whether the file was overwritten and restore the OpenAI Codex model block plus `mcp_servers.gbrain` before restarting the gateway.
