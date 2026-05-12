@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+export HOME=/data
+export HERMES_HOME=/data/.hermes
+export BUN_INSTALL=/data/.bun
+export PATH="/data/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+cd /data/brain
+exec /data/.bun/bin/gbrain serve

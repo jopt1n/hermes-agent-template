@@ -1,0 +1,39 @@
+# Local filled-in private values and runtime files
+.agent-envs/
+*.local.env
+*.secrets
+runtime
+runtime.local
+runtime.private
+auth.json
+*.key
+*.pem
+*.p12
+*.p8
+*.private
+
+# Runtime state
+logs/
+sessions/
+cache/
+*.log
+*.pid
+*.lock
+gateway.pid
+gateway.lock
+gateway_state.json
+
+# Local databases and GBrain locks
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.pglite/
+.gbrain-lock/
+brain.pglite/
+
+# Live copied directories should not be committed into this starter.
+live/
+exports/
+backups/

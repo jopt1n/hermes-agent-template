@@ -1,0 +1,31 @@
+model:
+  default: gpt-5.5
+  provider: openai-codex
+  base_url: https://chatgpt.com/backend-api/codex
+
+providers: {}
+fallback_providers: []
+credential_pool_strategies: {}
+
+toolsets:
+  - hermes-cli
+
+mcp_servers:
+  gbrain:
+    command: /data/.hermes/bin/gbrain-mcp-server
+    args: []
+    enabled: true
+    timeout: 120
+    connect_timeout: 60
+    tools:
+      exclude:
+        - extract_facts
+      resources: false
+      prompts: false
+
+# Notes:
+# - `extract_facts` is excluded because this GBrain version exposed an invalid
+#   OpenAI tool schema for entity_hints array items.
+# - Keep live private values in Railway variables or the live Hermes runtime file.
+# - Merge this with the current Hermes default config if the upstream schema
+#   changes; do not blindly delete platform/tool settings from an existing agent.

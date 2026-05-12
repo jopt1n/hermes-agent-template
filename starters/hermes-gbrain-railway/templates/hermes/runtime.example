@@ -1,0 +1,21 @@
+# Hermes + GBrain Railway starter runtime template.
+# Copy values into Railway variables or the live Hermes runtime file.
+# Do not commit a filled-in runtime file.
+
+# Hermes model and provider
+LLM_MODEL=gpt-5.5
+HERMES_INFERENCE_PROVIDER=openai-codex
+HERMES_CODEX_BASE_URL=https://chatgpt.com/backend-api/codex
+
+# Runtime paths
+HOME=/data
+HERMES_HOME=/data/.hermes
+BUN_INSTALL=/data/.bun
+GBRAIN_HOME=/data/.gbrain
+GBRAIN_BRAIN_DIR=/data/brain
+
+# Usually leave unset unless sources list shows a non-default source.
+# GBRAIN_SOURCE=default
+
+# Add provider, Slack, admin, and optional tool credentials as Railway service variables.
+# Keep live values out of git.

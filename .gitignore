@@ -1,4 +1,7 @@
 .env
+.agent-envs/
+*.local.env
+*.secrets
 *.pyc
 __pycache__/
 .DS_Store
