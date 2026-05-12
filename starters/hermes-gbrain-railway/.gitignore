@@ -1,5 +1,6 @@
 # Local filled-in private values and runtime files
 .agent-envs/
+.railway/
 *.local.env
 *.secrets
 runtime

@@ -16,6 +16,10 @@ When the dry run looks right and you want the script to apply Railway provisioni
 bash starters/hermes-gbrain-railway/scripts/create-hermes-agent.sh --interactive --yes
 ```
 
+Before any real apply, the script prints `railway whoami`, the current local `railway status`, and the target new project/service. It then requires you to type the new Railway project name exactly. This confirmation is required even when `--yes` is passed.
+
+The script creates the new Railway project from a temporary directory so `railway init` does not rewrite this repository's Railway link. Any temporary Railway link files are deleted after the command finishes.
+
 The wizard prompts for the new agent display name, Railway project and service names, admin username, admin password or generated password, Slack Bot Token, Slack App Token, Slack allowed member/user ID, Slack home channel ID, OpenAI API key for GBrain embeddings, dry-run versus apply, Slack app status, and whether to print the manual OpenAI Codex OAuth command.
 
 The wizard can write a local private values file at `.agent-envs/<agent-slug>.env` after confirmation. Treat that file as sensitive. `.agent-envs/` is ignored by git.
@@ -39,6 +43,8 @@ bash starters/hermes-gbrain-railway/scripts/create-hermes-agent.sh \
 - Dry-run the Railway plan.
 - With `--yes` or `--apply`, run Railway CLI steps to create/link the project and service, attach `/data`, set variables without printing values, and deploy the current repository.
 - Print the Railway SSH command and OpenAI Codex OAuth command that must be run manually.
+
+The apply path uses `railway up <repo-root> --path-as-root` from the temporary Railway-linked directory. The root `.gitignore` excludes generated local values, logs, sessions, locks, local databases, and `.railway/` link metadata from upload/commit workflows.
 
 ## Manual and Fresh Per Agent
 

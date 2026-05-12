@@ -55,7 +55,7 @@ Options:
   --env-file PATH               Read/write the generated private values file.
   --dry-run                     Show the plan only. This is the default.
   --apply                       Provision through Railway after confirmation.
-  --yes                         Provision through Railway without another apply prompt.
+  --yes                         Provision through Railway; still requires typed project-name confirmation.
   --env-only                    Only generate the private values file.
   --print-codex-oauth           Print the manual Codex OAuth command.
   -h, --help                    Show this help.
@@ -103,6 +103,38 @@ confirm() {
   read -r -p "$prompt $suffix " response
   response="${response:-$default}"
   case "$response" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+print_railway_preflight() {
+  echo "=== Railway account ==="
+  railway whoami || die "Railway CLI is not authenticated"
+
+  echo
+  echo "=== Current local Railway link before apply ==="
+  if ! railway status; then
+    echo "No current Railway project link was detected for this directory."
+  fi
+
+  echo
+  echo "=== Target for this apply ==="
+  echo "new project name: $project_name"
+  echo "new service name: $service_name"
+  echo "volume mount: /data"
+  echo
+  echo "Apply will create/link the new Railway project from a temporary directory."
+  echo "It will not run railway init in this repository."
+}
+
+require_project_name_confirmation() {
+  local typed
+  if [ ! -t 0 ]; then
+    die "real apply requires an interactive terminal to type the new Railway project name"
+  fi
+
+  echo
+  echo "To apply, type the new Railway project name exactly."
+  read -r -p "Project name: " typed
+  [ "$typed" = "$project_name" ] || die "project name confirmation did not match; refusing to apply"
 }
 
 generate_admin_value() {
@@ -213,10 +245,19 @@ set_railway_var() {
 
 apply_railway() {
   have railway || die "Railway CLI is required for --apply/--yes"
+  print_railway_preflight
+  require_project_name_confirmation
+
+  local railway_workdir
+  railway_workdir="$(mktemp -d "${TMPDIR:-/tmp}/hermes-railway.XXXXXX")"
+  trap 'rm -rf "$railway_workdir"' RETURN
+
+  (
+  cd "$railway_workdir"
   echo "Creating or linking Railway project and service..."
   railway init --name "$project_name" --json >/dev/null
-  railway add --service "$service_name" --json >/dev/null || true
-  railway volume add --service "$service_name" --mount-path /data --json >/dev/null || true
+  railway add --service "$service_name" --json >/dev/null
+  railway volume add --service "$service_name" --mount-path /data --json >/dev/null
   echo "Setting Railway variables without printing values..."
   set_railway_var AGENT_DISPLAY_NAME "$agent_name"
   set_railway_var LLM_MODEL gpt-5.5
@@ -235,7 +276,11 @@ apply_railway() {
   set_railway_var SLACK_HOME_CHANNEL_ID "$slack_channel"
   set_railway_var "$KEY_OPENAI" "$openai_val"
   echo "Deploying current repository to the new Railway service..."
-  railway up --service "$service_name" --detach --message "Deploy Hermes GBrain starter" >/dev/null
+  railway up "$REPO_ROOT" --path-as-root --service "$service_name" --detach --message "Deploy Hermes GBrain starter" >/dev/null
+  )
+
+  rm -rf "$railway_workdir"
+  trap - RETURN
 }
 
 while [ "$#" -gt 0 ]; do
@@ -336,6 +381,8 @@ if [ "$dry_run" = true ]; then
 Dry-run only. No Railway deploy was started.
 
 Planned actions for --yes/--apply:
+- show railway whoami and current railway status
+- require typing the new Railway project name exactly
 - create/link Railway project: $project_name
 - create/link Railway service: $service_name
 - attach a persistent volume at /data

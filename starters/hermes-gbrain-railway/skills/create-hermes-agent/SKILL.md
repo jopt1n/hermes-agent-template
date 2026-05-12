@@ -20,8 +20,8 @@ Never print private values back. Do not reuse the live agent private values. Do 
 2. Collect inputs: run the interactive script so hidden prompts can receive private values.
 3. Generate env file: write `.agent-envs/<agent-slug>.env` only when Joe confirms.
 4. Dry-run Railway provisioning: show project, service, volume, variables, deploy, bootstrap, and verification steps without applying.
-5. Confirm: require `--yes`, `--apply`, or interactive approval before provisioning.
-6. Apply: create/link the Railway project and service, attach `/data`, set variables without printing values, and deploy.
+5. Confirm: require `--yes`, `--apply`, or interactive approval before provisioning, then require typing the new Railway project name exactly.
+6. Apply: show `railway whoami` and current `railway status`, create/link the Railway project and service from a temporary directory, attach `/data`, set variables without printing values, and deploy.
 7. Bootstrap volume: run `scripts/bootstrap-volume.sh` inside Railway SSH.
 8. Manual OpenAI Codex OAuth: run `hermes login openai-codex` fresh inside Railway SSH.
 9. Slack verification: verify `/model`, `/new`, and GBrain MCP.
